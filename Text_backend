@@ -1,0 +1,180 @@
+local txt = {[1] = ""}
+local txtmt = {__index = function() return "" end}
+setmetatable(txt,txtmt)
+local cursor = {} -- I store users here. why not =P
+local connectUser = function(name)
+   cursor[name] = {
+   x = 1,y = 1
+}
+end
+local disconnectUser = function(name)
+   cursor[name] = nil
+end
+local _i = function(t,c,a,b) -- helper function
+   return t:sub(1,a)..c..t:sub(b,#t) -- injecting a string at a certain place in a string
+end
+Char = function(name,c) -- write a char
+txt[cursor[name].y] = _i(txt[cursor[name].y],c,cursor[name].x-1,cursor[name].x)
+   cursor[name].x = cursor[name].x + 1
+end
+Backspace = function(name) -- yep
+   if cursor[name].x > 1 then
+      txt[cursor[name].y] = _i(txt[cursor[name].y],"",cursor[name].x-2,cursor[name].x) -- remove char at cursor[name].x-1
+      cursor[name].x = cursor[name].x - 1
+   elseif cursor[name].y > 1 then
+      cursor[name].x = #txt[cursor[name].y-1]+1
+      txt[cursor[name].y-1] = txt[cursor[name].y-1]..txt[cursor[name].y] -- concat current line with above.
+      table.remove(txt,cursor[name].y) -- remove current line
+      cursor[name].y = cursor[name].y - 1
+   end
+end
+local Delete = function(name) -- similar to backspace
+   if cursor[name].x < #txt[cursor[name].y]+1 then
+      txt[cursor[name].y] = _i(txt[cursor[name].y],"",cursor[name].x-1,cursor[name].x+1) -- remove char
+   elseif #txt > cursor[name].y then
+      txt[cursor[name].y] = txt[cursor[name].y]..txt[cursor[name].y+1]
+      table.remove(txt,cursor[name].y+1) -- remove table index
+   end
+end
+local Enter = function(name) -- enter.   ...
+   local p = ""
+   --[[if Mode == "code" then -- if code mode then it will indent
+      for i=1,#txt do
+         if txt[cursor[name].y]:sub(i,i) == " " then -- automatic indentation upon newline.
+            p = p.." "
+         else
+            break
+         end
+      end
+   end]]
+   if cursor[name].x > #txt[cursor[name].y] then  
+      table.insert(txt,cursor[name].y+1,p)
+      cursor[name].x = #p+1
+   else
+      table.insert(txt,p..txt[cursor[name].y]:sub(cursor[name].x,#txt[cursor[name].y]),cursor[name].y+1)
+      cursor[name].x = #txt[cursor[name].y]:sub(cursor[name].x,#txt[cursor[name].y])+1
+   end
+   cursor[name].y = cursor[name].y + 1
+end
+local GetLines = function(x1,y1,x2,y2) -- get some lines, for syncing and copy pasting functionality probably
+   local t = {}
+   t[1] = txt[y1]:sub(x1,#txt[y1])
+   if y2-y1 > 1 then
+      for i=2,y2-y1 do
+         t[i] = txt[y1+i-1]
+      end
+   end
+   t[#t] = t[#t]:sub(1,x2)
+end
+local InsertLines = function(name,t) -- put lines from GetLines function at cursor[name].y and cursor[name].x
+   local last = txt[cursor[name].y]:sub(cursor[name].x,#txt[cursor[name].y])
+   if #t > 1 then
+      txt[cursor[name].y] = txt[cursor[name].y]:sub(1,cursor[name].x-1)..t[1]
+      for i=2,#t do
+         cursor[name].y = cursor[name].y + 1
+         txt[cursor[name].y] = t[i]
+      end
+      txt[cursor[name].y] = txt[cursor[name].y]..last
+   else
+      txt[cursor[name].y] = txt[cursor[name].y]:sub(1,cursor[name].x-1)..t[1]..last
+   end
+end
+local Tab = function(name) -- tabulate
+   txt[cursor[name].y] = txt[cursor[name].y]:sub(1,cursor[name].x-1).."   "..txt[cursor[name].y]:sub(cursor[name].x,#txt[cursor[name].y])
+end
+
+local m = { -- movement functions
+   [keys.up] = function(name)
+      if cursor[name].y > 1 then
+         cursor[name].y = cursor[name].y - 1
+         cursor[name].x = math.min(cursor[name].x,#txt[cursor[name].y]+1)
+      else
+         cursor[name].x = 1
+      end
+   end,
+   [keys.down] = function(name)
+      if #txt > cursor[name].y then
+         cursor[name].y = cursor[name].y + 1
+         cursor[name].x = math.min(cursor[name].x,#txt[cursor[name].y]+1)
+      end
+   end,
+   [keys.left] = function(name)
+      if cursor[name].x > 1 then
+         cursor[name].x = cursor[name].x - 1
+      elseif cursor[name].y > 1 then
+         cursor[name].y = cursor[name].y - 1
+         cursor[name].x = #txt[cursor[name].y]+1
+      end
+   end,
+   [keys.right] = function(name)
+      if cursor[name].x-1 <= #txt[cursor[name].y] then
+         cursor[name].x = cursor[name].x + 1
+      elseif cursor[name].y < #txt then
+         cursor[name].y = cursor[name].y + 1
+         cursor[name].x = 1
+      end
+   end,
+   [keys.home] = function(name)
+      cursor[name].x = 1
+   end,
+   [keys["end"]] = function(name)
+      cursor[name].x = #txt[cursor[name].y]+1
+   end
+}
+local Movement = function(name,key,rep) -- what key was pressed, or if manually triggered: second arg repeats rep times.
+   local a = rep or 1
+   if m[key] then
+      for i=1,a do
+         m[key](name)
+      end
+   end
+end
+local import = function(name)
+   if fs.exist(name) and not fs.isDir(name) then
+      local file = fs.open(name,"r")
+      for line in file.readLine do
+         table.insert(txt,line)
+      end
+   else
+      return false
+   end
+   return true
+end
+local save = function(name)
+   local file = fs.open(name,"w")
+   for i=1,#txt do
+      file.write(txt[i])
+   end
+   return true
+end
+
+local name = "hi" --LOGINSTUFF_THATS_NOT_MY_BUSINESS______() 
+
+connectUser(name)
+-- mockup main loop
+while true do
+   local e = {"hi",os.pullEvent()}--DecodedMessageOfTheEventSomeoneSent()} -- FOR EVERYONE INCLUDING THIS USER. 1 = user, 2 = event/custom event, [3,4,...] = data
+   if e[2] == "char" then
+      Char(e[1],e[3])
+   elseif e[2]:sub(1,5) == "mouse" then
+      --mouse Handling,
+   elseif e[2] == "key" then
+      if e[3] == keys.backspace then
+         Backspace(e[1])
+      elseif e[3] == keys.delete then
+         Delete(e[1])
+      elseif e[3] == keys.enter then
+         Enter(e[1])
+      else
+         Movement(e[1],e[3])
+      end
+   elseif e[2] == "LineInsert" then -- for syncing 
+      InsertLines(e[1],e[3])
+   elseif e[2] == "terminate" then
+      disconnectUser(e[1])
+   end
+   for i=1,19 do
+      term.setCursorPos(1,i)
+      write(txt[i]..(" "):rep(51-#txt[i]))
+   end
+end
